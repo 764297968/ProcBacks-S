@@ -9,176 +9,126 @@ using TerminalTrance;
 using System.Data.SQLite;
 using System.IO;
 using System.Data;
+using System.Data.SqlClient;
+using System.Web.Security;
 
 namespace ProcBackups
 {
     partial class Backup : ServiceBase
     {
         System.Timers.Timer tim;  //计时器
-         SqliteHelper.SqliteHelper instance;
-        string dataPath = Application.StartupPath;
-        string tabName = "ProcBackUp";
+        SqliteHelper.SqliteHelper instance;
+        static string dataPath = Application.StartupPath;
+        static string path = Path.Combine(dataPath, "Proc.db");
+        string sqlConnStr = "Data Source=124.207.143.5;Initial Catalog=FMCG_BPMS;Persist Security Info=True;User ID=sa; Password=ylyato99!;Min Pool Size=1;Connection Lifetime=0;Max Pool Size=50;Connection Reset=false;Pooling= true;";
+        static string tabName = "ProcBackUp";
         public Backup()
         {
             InitializeComponent();
             MessageAdd("开始调用");
             tim = new System.Timers.Timer();
             MessageAdd("赋值计时器");
-
+            instance = SqliteHelper.SqliteHelper.Instance;
+            instance.SetDataSourcePath(path);
+            if (!instance.IsExists(tabName))
+            {
+                CreateTab();
+            }
             tim.Elapsed += new System.Timers.ElapsedEventHandler(BackUpProc);
-            tim.Interval = 3000;
+            tim.Interval = 1000*60*60*2;//2个小时执行
             tim.Enabled = true;
-            
-            MessageAdd("路径" + Path.Combine(dataPath, "Proc.db"));
-            //instance = SqliteHelper.SqliteHelper.Instance;
-            MessageAdd("调用createtab方法");
-            //CreateTab();
 
         }
         private void BackUpProc(object sender, System.Timers.ElapsedEventArgs e)
         {
-            MessageAdd("填充------------");
-            var sql = "insert into ProcBackUp values(@ProcID,@ProcName,@ProcInfo,@ProcMD5,@GenerateTime,@ModifyTime,@CreateTime)";
-            SQLiteParameter[] prams = new SQLiteParameter[] {
-                new SQLiteParameter("@ProcID",Guid.NewGuid().ToString()),
-                new SQLiteParameter("@ProcName",Guid.NewGuid().ToString()),
-                new SQLiteParameter("@ProcInfo",Guid.NewGuid().ToString()),
-                new SQLiteParameter("@ProcMD5",Guid.NewGuid().ToString()),
-                new SQLiteParameter("@GenerateTime",Guid.NewGuid().ToString()),
-                new SQLiteParameter("@ModifyTime",Guid.NewGuid().ToString()),
-                new SQLiteParameter("@CreateTime",DateTime.Now)
-            };
-
-            string path = Path.Combine(dataPath, "Proc.db");
-            try
+            string getProcSql = "select a.name ProcName,"
+            + "b.definition ProcInfo, "
+            + "a.create_date GenerateTime, "
+            + " a.modify_date ModifyTime from sys.all_objects a,sys.sql_modules b where a.is_ms_shipped = 0 and a.object_id = b.object_id and a.[type] in ('P','V','AF') order by a.[name] asc ";
+            DataTable dt = ExecuteTable(sqlConnStr, CommandType.Text, getProcSql);
+            if (dt.Rows.Count != 0)
             {
-                SqliteHelper.SqliteHelper.Instance.SetDataSourcePath(path);
-                SqliteHelper.SqliteHelper.Instance.ExecuteNonQuery(sql, prams);
-            }
-            catch (Exception ex)
-            {
-                MessageAdd("helper填数据异常:" + ex.Message + ex.StackTrace);
-            }
-            try
-            {
-                bool flag = false;
-                
-                var conn = new SQLiteConnection(string.Format("Data Source={0};version=3", path));
-
-                using (SQLiteCommand command = new SQLiteCommand(sql, conn))
+                foreach (DataRow item in dt.Rows)
                 {
-                    conn.Open();
-                    if (prams != null)
+                    try
                     {
-                        foreach (SQLiteParameter p in prams)
+                        string procInfo = item["ProcInfo"].ToString();
+                        string md5Proc = FormsAuthentication.HashPasswordForStoringInConfigFile(procInfo, "MD5");
+                        string procMD5 = FormsAuthentication.HashPasswordForStoringInConfigFile(md5Proc, "SHA1");
+                        //string sqlstr = "insert into ProcBackUp values(NULL, '123123', '123123', '123', '123123', '123123', '123123')";
+                        object isexits = instance.GetOnly("select 1 from " + tabName + " where ProcMD5='" + procMD5 + "'");
+                        if (isexits != null)
                         {
-                            if (p != null)
-                            {
-                                // Check for derived output value with no value assigned
-                                if ((p.Direction == ParameterDirection.InputOutput ||
-                                    p.Direction == ParameterDirection.Input) &&
-                                    (p.Value == null))
-                                {
-                                    p.Value = DBNull.Value;
-                                }
-                                command.Parameters.Add(p);
-                            }
+                            MessageAdd("数据未更新，md5: " + procMD5);
+                        }
+                        else
+                        {
+                            var sql = "insert into ProcBackUp values(NULL,@ProcName,@ProcInfo,@ProcMD5,@GenerateTime,@ModifyTime,@CreateTime)";
+                            SQLiteParameter[] prams = new SQLiteParameter[] {
+                                                    new SQLiteParameter("@ProcName",item["ProcName"]),
+                                                    new SQLiteParameter("@ProcInfo",item["ProcInfo"]),
+                                                    new SQLiteParameter("@ProcMD5",procMD5),
+                                                    new SQLiteParameter("@GenerateTime",item["GenerateTime"] ),
+                                                    new SQLiteParameter("@ModifyTime",item["ModifyTime"] ),
+                                                    new SQLiteParameter("@CreateTime",DateTime.Now)
+                                                };
+
+                            bool result = instance.ExecuteNonQuery(sql, prams);
+                            MessageAdd("insert数据:" + result + " md5:" + procMD5);
                         }
                     }
-                    flag = command.ExecuteNonQuery() > 0;
-                    conn.Close();
+                    catch (Exception ex)
+                    {
+                        MessageAdd("helper填数据异常:" + item["ProcName"] + "  " + ex.Message + ex.StackTrace);
+                    }
                 }
-                MessageAdd("填数据:" + flag + " ");
-                // MessageAdd("填数据:" + flag+" "+sql+Newtonsoft.Json.JsonConvert.SerializeObject(prams.ToArray()));
             }
-            catch (Exception ex)
+
+        }
+        public static string FormatSqlParameter(SQLiteParameter[] parms)
+        {
+            Dictionary<string, string> list = new Dictionary<string, string>();
+            StringBuilder sb = new StringBuilder();
+            foreach (var item in parms)
             {
-                MessageAdd("填数据异常:" + ex.Message + ex.StackTrace);
+                sb.Append(item.ParameterName + ":" + item.Value + ",");
             }
+            return sb.ToString();
         }
         private void CreateTab()
         {
-            //SqliteHelper.SqliteHelper.Instance.SetDataSourcePath(Path.Combine(dataPath, "Proc"));
-            //var conn = new System.Data.SQLite.SQLiteConnection(Path.Combine(txt_DataSourceFilePath.Text, txt_DataSourceFileName.Text));
-            //conn.SetPassword("123456");
 
-            string path = Path.Combine(dataPath, "Proc.db");
-            string tabName = "ProcBackUp";
-            var conn = new SQLiteConnection(string.Format("Data Source={0};version=3", path));
-            bool isexits = false;
+            var parameters = new List<string[]>();
+            parameters.Add(new[] { "ProcID", " INTEGER PRIMARY KEY" });
+            parameters.Add(new[] { "ProcName", "varchar", "(200)" });
+            parameters.Add(new[] { "ProcInfo", "varchar", "(2000)" });
+            parameters.Add(new[] { "ProcMD5", "varchar", "(36)" });
+            parameters.Add(new[] { "GenerateTime", "varchar", "(50)" });
+            parameters.Add(new[] { "ModifyTime", "varchar", "(50)" });
+            parameters.Add(new[] { "CreateTime", "varchar", "(50)" });
 
-            using (SQLiteCommand cmd = new SQLiteCommand("SELECT COUNT(1) FROM sqlite_master where type='table' and name='" + tabName + "'", conn))
+            MessageAdd("参数完成");
+
+            try
             {
-                conn.Open();
-                isexits = Convert.ToInt16(cmd.ExecuteScalar()) > 0;
-                conn.Close();
-            }
-            MessageAdd("表是否存在:" + isexits);
-            if (!isexits)
-            {
-                var parameters = new List<string[]>();
-                parameters.Add(new[] { "ProcID", "varchar", "(50)" });
-                parameters.Add(new[] { "ProcName", "varchar", "(200)" });
-                parameters.Add(new[] { "ProcInfo", "varchar", "(2000)" });
-                parameters.Add(new[] { "ProcMD5", "varchar", "(36)" });
-                parameters.Add(new[] { "GenerateTime", "varchar", "(50)" });
-                parameters.Add(new[] { "CreateTime", "varchar", "(50)" });
-                parameters.Add(new[] { "ModifyTime", "varchar", "(50)" });
-                ///////////////////////////////////
-                MessageAdd("参数完成");
-                if (!File.Exists(path))
+                List<string> values = new List<string>();
+                foreach (string[] strArray in parameters)
                 {
-                    SQLiteConnection.CreateFile(path);
+                    values.Add(string.Join(" ", strArray));
                 }
-                MessageAdd("创建完database");
-
-
-                //SqliteHelper.SqliteHelper.Instance.SetDataSourcePath(Path.Combine(dataPath, "Proc.db"));
-                //MessageAdd("连接");
-                //var sqliteparameters = parameters.ToArray();
-                //SqliteHelper.SqliteHelper.Instance.CreateTable("FileInfo", sqliteparameters);
-                MessageAdd("sql日志");
-
-
-
-                MessageAdd("sql完成");
-                bool flag = false;
-                var sqliteparameters = parameters.ToArray();
-                try
-                {
-                    using (conn)
-                    {
-                        conn.Open();
-                        MessageAdd("conn打开");
-                        List<string> values = new List<string>();
-                        foreach (string[] strArray in sqliteparameters)
-                        {
-                            values.Add(string.Join(" ", strArray));
-                        }
-                        string sql = string.Format("create table {0}({1})", tabName, string.Join(",", values));
-                        using (SQLiteCommand command = new SQLiteCommand(sql, conn))
-                        {
-                            if (new SQLiteParameter[0] != null)
-                            {
-                                command.Parameters.AddRange(new SQLiteParameter[0]);
-                            }
-                            flag = command.ExecuteNonQuery() > 0;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageAdd("异常:" + ex.Message + ex.Source + ex.StackTrace);
-                }
-                /////////////
+                string sql1 = string.Format("create table {0}({1})", "ProcBackUp", string.Join(",", values));
+                MessageAdd("创建表sql:" + sql1);
+                bool flag = instance.CreateTable(tabName, parameters.ToArray());
                 MessageAdd("创建表:" + flag);
             }
-
-
+            catch (Exception ex)
+            {
+                MessageAdd("建表err" + ex.Message + ex.StackTrace);
+            }
         }
         protected override void OnStart(string[] args)
         {
-            
+
             string msg = "启动服务";
             try
             {
@@ -204,10 +154,59 @@ namespace ProcBackups
             }
             MessageAdd(msg);
         }
+        protected override void OnContinue()
+        {
+            try
+            {
+                this.tim.Start();
+                base.OnContinue();
+                MessageAdd("服务继续");
+            }
+            catch (Exception ex)
+            {
+                MessageAdd("服务继续异常:" + ex.Message);
+            }
+            
+        }
+
+        protected override void OnPause()
+        {
+            try
+            {
+                this.tim.Stop();
+                base.OnPause();
+                MessageAdd("服务暂停");
+            }
+            catch (Exception ex)
+            {
+                MessageAdd("服务暂停异常:"+ex.Message);
+            }
+            
+            
+        }
         private void MessageAdd(string msg)
         {
             string path = LogHelper.Path;
             LogHelper.WriteFile(path, msg);
         }
+        private static DataTable ExecuteTable(string connectionString, CommandType commandType, string txt, params SqlParameter[] param)
+        {
+
+            DataTable dt = new DataTable();
+            using (SqlConnection conn = new SqlConnection(connectionString))
+            {
+                using (SqlCommand cmd = new SqlCommand(txt, conn))
+                {
+                    cmd.CommandType = commandType;
+                    cmd.Parameters.AddRange(param);
+                    using (SqlDataAdapter sda = new SqlDataAdapter(cmd))
+                    {
+                        sda.Fill(dt);
+                        return dt;
+                    }
+                }
+            }
+        }
+
     }
 }

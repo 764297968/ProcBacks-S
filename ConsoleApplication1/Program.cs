@@ -15,7 +15,7 @@ namespace ConsoleApplication1
 {
     class Program
     {
-        static string dataPath = Application.StartupPath;
+        static string dataPath = "D:\\windows服务\\BackUp";
         static System.Timers.Timer tim = new System.Timers.Timer();
         static Stopwatch sw = new Stopwatch();
         static int num = 0;
@@ -23,10 +23,9 @@ namespace ConsoleApplication1
         {
             CreateTab();
             sw.Start();
-            for (int i = 0; i < 100000; i++)
-            {
-                BackUpProc();
-            }
+
+            BackUpProc();
+
             sw.Stop();
             Console.WriteLine(sw.Elapsed.TotalMilliseconds);
             //CreateTab();
@@ -61,7 +60,8 @@ namespace ConsoleApplication1
                 using (SQLiteCommand command = new SQLiteCommand(sql, conn))
                 {
                     conn.Open();
-                    if (prams != null)
+                    conn.BusyTimeout = 90;
+                     if (prams != null)
                     {
                         foreach (SQLiteParameter p in prams)
                         {
@@ -82,8 +82,16 @@ namespace ConsoleApplication1
                     //{
                     //    command.Parameters.AddRange(new SQLiteParameter[0]);
                     //}
-                    flag = command.ExecuteNonQuery() > 0;
-                     conn.Close();
+                    try
+                    {
+                        flag = command.ExecuteNonQuery() > 0;
+                    }
+                    catch (Exception ex)
+                    {
+                        
+                    }
+                  
+                    conn.Close();
                 }
                 // MessageAdd("填数据:" + flag+" "+sql+Newtonsoft.Json.JsonConvert.SerializeObject(prams.ToArray()));
             }
@@ -95,7 +103,6 @@ namespace ConsoleApplication1
 
         private static void CreateTab()
         {
-            string dataPath = Application.StartupPath;
             //SqliteHelper.SqliteHelper.Instance.SetDataSourcePath(Path.Combine(dataPath, "Proc"));
             //var conn = new System.Data.SQLite.SQLiteConnection(Path.Combine(txt_DataSourceFilePath.Text, txt_DataSourceFileName.Text));
             //conn.SetPassword("123456");
@@ -109,13 +116,13 @@ namespace ConsoleApplication1
             parameters.Add(new[] { "ModifyTime", "varchar", "(50)" });
             ///////////////////////////////////
             MessageAdd("参数完成");
-            string path = Path.Combine(dataPath, "Proc.db");
+            string path = Path.Combine(dataPath, "Proc2222.db");
             if (!File.Exists(path))
             {
                 SQLiteConnection.CreateFile(path);
             }
-            var conn = new SQLiteConnection(string.Format("Data Source = {0};version = 3", path));
-
+            var conn = new SQLiteConnection(string.Format("Data Source = {0};version = 3;Password=123123", path));
+            
             //SqliteHelper.SqliteHelper.Instance.SetDataSourcePath(Path.Combine(dataPath, "Proc.db"));
             string sql = string.Format("insert into {0} values('{1}')", "ProcBackUp", string.Join("','", parameters));
             var sqliteparameters = parameters.ToArray();
@@ -123,7 +130,7 @@ namespace ConsoleApplication1
 
             MessageAdd("sql完成");
             bool flag = false;
-     
+
             try
             {
                 using (conn)

@@ -10,7 +10,7 @@ namespace TerminalTrance
     public static class LogHelper
     {
        public static string Path {
-            get { return Application.StartupPath + @"\Logs\BackUpLog.txt"; }
+            get { return Application.StartupPath + @"\Logs\"+DateTime.Now.ToString("yyyyMMdd")+"BackUpLog.txt"; }
         }
 
         //创建文件夹
