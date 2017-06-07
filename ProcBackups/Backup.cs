@@ -35,7 +35,7 @@ namespace ProcBackups
                 CreateTab();
             }
             tim.Elapsed += new System.Timers.ElapsedEventHandler(BackUpProc);
-            tim.Interval = 1000*60*60*2;//2个小时执行
+            tim.Interval = 1000*60*60*1;//2个小时执行
             tim.Enabled = true;
 
         }
@@ -59,7 +59,7 @@ namespace ProcBackups
                         object isexits = instance.GetOnly("select 1 from " + tabName + " where ProcMD5='" + procMD5 + "'");
                         if (isexits != null)
                         {
-                            MessageAdd("数据未更新，md5: " + procMD5);
+                            //MessageAdd("数据未更新，md5: " + procMD5);
                         }
                         else
                         {
