@@ -35,7 +35,7 @@ namespace ProcBackups
                 CreateTab();
             }
             tim.Elapsed += new System.Timers.ElapsedEventHandler(BackUpProc);
-            tim.Interval = 1000*60*60*1;//2个小时执行
+            tim.Interval = 1000*60*60*1;//1个小时执行
             tim.Enabled = true;
 
         }
@@ -83,7 +83,7 @@ namespace ProcBackups
                     }
                 }
             }
-
+            MessageAdd("执行数据调用");
         }
         public static string FormatSqlParameter(SQLiteParameter[] parms)
         {
